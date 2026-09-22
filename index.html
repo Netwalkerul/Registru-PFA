@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Registru PFA</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --paper: #EDEAE0;
+    --surface: #F7F5EE;
+    --ink: #1B2A28;
+    --ink-soft: #4A5551;
+    --line: #C9C2AE;
+    --line-strong: #A69C82;
+    --credit: #2F4F3E;
+    --debit: #7A2E2E;
+    --accent-bg: #E4E0D2;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #1A1D1B;
+      --surface: #222623;
+      --ink: #E9E6DC;
+      --ink-soft: #A9A79C;
+      --line: #3A3D38;
+      --line-strong: #55564F;
+      --credit: #7FB89A;
+      --debit: #D98C8C;
+      --accent-bg: #2B2E29;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #1A1D1B;
+    --surface: #222623;
+    --ink: #E9E6DC;
+    --ink-soft: #A9A79C;
+    --line: #3A3D38;
+    --line-strong: #55564F;
+    --credit: #7FB89A;
+    --debit: #D98C8C;
+    --accent-bg: #2B2E29;
+  }
+  html { scroll-padding-top: env(safe-area-inset-top, 0px); height: 100%; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    min-height: 100%;
+  }
+  h1, h2, h3 { font-family: 'Source Serif 4', Georgia, serif; font-weight: 600; margin: 0; }
+  .num { font-family: 'IBM Plex Mono', monospace; font-variant-numeric: tabular-nums; }
+  input, select, button, textarea { font-family: inherit; font-size: 0.95rem; }
+
+  /* ---------- layout shell ---------- */
+  #app { display: none; min-height: 100vh; }
+  .shell { display: flex; min-height: 100vh; }
+  nav.ledger-tabs {
+    width: 210px;
+    flex-shrink: 0;
+    background: var(--surface);
+    border-right: 1px solid var(--line);
+    padding: 24px 0;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+  }
+  nav.ledger-tabs .brand {
+    padding: 0 20px 20px 20px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 8px;
+  }
+  nav.ledger-tabs .brand h1 { font-size: 1.15rem; line-height: 1.3; }
+  nav.ledger-tabs .brand .sub { font-size: 0.75rem; color: var(--ink-soft); margin-top: 4px; }
+  nav.ledger-tabs button.tab {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 11px 20px;
+    background: none;
+    border: none;
+    border-left: 3px solid transparent;
+    color: var(--ink-soft);
+    cursor: pointer;
+    font-size: 0.92rem;
+  }
+  nav.ledger-tabs button.tab:hover { background: var(--accent-bg); }
+  nav.ledger-tabs button.tab.active {
+    color: var(--ink);
+    border-left-color: var(--credit);
+    background: var(--accent-bg);
+    font-weight: 500;
+  }
+  nav.ledger-tabs .foot {
+    position: absolute;
+    bottom: 20px;
+    width: 210px;
+    padding: 0 20px;
+    font-size: 0.8rem;
+  }
+  nav.ledger-tabs .foot button {
+    background: none; border: 1px solid var(--line-strong); color: var(--ink-soft);
+    padding: 6px 10px; border-radius: 2px; cursor: pointer; width: 100%;
+  }
+  main { flex: 1; padding: 32px 40px; max-width: 980px; }
+  @media (max-width: 720px) {
+    .shell { flex-direction: column; }
+    nav.ledger-tabs { width: 100%; height: auto; position: static; padding: 16px; }
+    nav.ledger-tabs .tabs { display: flex; overflow-x: auto; gap: 4px; }
+    nav.ledger-tabs button.tab { width: auto; white-space: nowrap; border-left: none; border-bottom: 3px solid transparent; }
+    nav.ledger-tabs button.tab.active { border-left-color: transparent; border-bottom-color: var(--credit); }
+    nav.ledger-tabs .foot { position: static; width: 100%; margin-top: 12px; }
+    main { padding: 20px; }
+  }
+
+  .page-title { margin-bottom: 4px; font-size: 1.5rem; }
+  .page-sub { color: var(--ink-soft); font-size: 0.88rem; margin-bottom: 24px; }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  .panel h3 { font-size: 1rem; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+
+  .field-row { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
+  .field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 140px; }
+  .field label { font-size: 0.78rem; color: var(--ink-soft); }
+  .field input, .field select {
+    padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 2px;
+    background: var(--paper); color: var(--ink);
+  }
+  .btn {
+    padding: 8px 16px; border-radius: 2px; border: 1px solid var(--ink);
+    background: var(--ink); color: var(--paper); cursor: pointer; font-size: 0.9rem;
+  }
+  .btn:hover { opacity: 0.88; }
+  .btn.secondary { background: transparent; color: var(--ink); border-color: var(--line-strong); }
+  .btn.danger { border-color: var(--debit); color: var(--debit); background: transparent; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+  thead th {
+    text-align: left; font-weight: 500; color: var(--ink-soft);
+    border-bottom: 1px solid var(--line-strong); padding: 8px 10px; font-size: 0.78rem;
+    text-transform: none;
+  }
+  tbody td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tbody tr:hover { background: var(--accent-bg); }
+  td.num, th.num { text-align: right; }
+  .credit { color: var(--credit); }
+  .debit { color: var(--debit); }
+  .muted { color: var(--ink-soft); }
+  .empty-state { padding: 30px 10px; text-align: center; color: var(--ink-soft); font-size: 0.9rem; }
+
+  .totals-bar { display: flex; gap: 28px; flex-wrap: wrap; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line-strong); }
+  .totals-bar .item .label { font-size: 0.75rem; color: var(--ink-soft); }
+  .totals-bar .item .value { font-size: 1.1rem; }
+
+  /* ---------- auth / setup screens ---------- */
+  .center-screen {
+    min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px;
+  }
+  .auth-card {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 2px;
+    padding: 32px; max-width: 400px; width: 100%;
+  }
+  .auth-card h1 { font-size: 1.3rem; margin-bottom: 6px; }
+  .auth-card .sub { color: var(--ink-soft); font-size: 0.85rem; margin-bottom: 22px; line-height: 1.5; }
+  .auth-card .field { margin-bottom: 14px; }
+  .error-msg { color: var(--debit); font-size: 0.85rem; margin-top: 10px; }
+  .link-btn { background: none; border: none; color: var(--ink-soft); text-decoration: underline; cursor: pointer; font-size: 0.8rem; padding: 0; }
+
+  @media print {
+    nav.ledger-tabs, .no-print { display: none !important; }
+    main { padding: 0; max-width: none; }
+    body { background: white; }
+    .panel { border: none; padding: 0; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ===================== SETUP SCREEN ===================== -->
+<div id="setup-screen" class="center-screen">
+  <div class="auth-card">
+    <h1>Configurare inițială</h1>
+    <div class="sub">Introdu datele proiectului Supabase (Project Settings → API). Se salvează doar în acest browser.</div>
+    <div class="field">
+      <label>Project URL</label>
+      <input id="setup-url" placeholder="https://xxxx.supabase.co">
+    </div>
+    <div class="field">
+      <label>Anon public key</label>
+      <input id="setup-key" placeholder="eyJhbGciOi...">
+    </div>
+    <button class="btn" onclick="saveSetup()">Salvează și continuă</button>
+    <div id="setup-error" class="error-msg"></div>
+  </div>
+</div>
+
+<!-- ===================== LOGIN SCREEN ===================== -->
+<div id="login-screen" class="center-screen" style="display:none;">
+  <div class="auth-card">
+    <h1>Registru PFA</h1>
+    <div class="sub">Autentifică-te cu contul creat în Supabase Authentication.</div>
+    <div class="field">
+      <label>Email</label>
+      <input id="login-email" type="email">
+    </div>
+    <div class="field">
+      <label>Parolă</label>
+      <input id="login-pass" type="password">
+    </div>
+    <button class="btn" onclick="doLogin()" style="width:100%;">Autentificare</button>
+    <div id="login-error" class="error-msg"></div>
+    <div style="margin-top:16px;"><button class="link-btn" onclick="showSetup()">Schimbă configurarea Supabase</button></div>
+  </div>
+</div>
+
+<!-- ===================== MAIN APP ===================== -->
+<div id="app">
+  <div class="shell">
+    <nav class="ledger-tabs">
+      <div class="brand">
+        <h1>Registru PFA</h1>
+        <div class="sub" id="user-email"></div>
+      </div>
+      <div class="tabs">
+        <button class="tab active" data-tab="tranzactii" onclick="switchTab('tranzactii')">Tranzacții</button>
+        <button class="tab" data-tab="categorii" onclick="switchTab('categorii')">Categorii</button>
+        <button class="tab" data-tab="jurnal" onclick="switchTab('jurnal')">Registru-jurnal</button>
+        <button class="tab" data-tab="balanta" onclick="switchTab('balanta')">Balanță pe perioadă</button>
+        <button class="tab" data-tab="fiscal" onclick="switchTab('fiscal')">Registru fiscal / D212</button>
+      </div>
+      <div class="foot">
+        <button onclick="doLogout()">Deconectare</button>
+      </div>
+    </nav>
+    <main>
+      <div id="view-tranzactii"></div>
+      <div id="view-categorii" style="display:none;"></div>
+      <div id="view-jurnal" style="display:none;"></div>
+      <div id="view-balanta" style="display:none;"></div>
+      <div id="view-fiscal" style="display:none;"></div>
+    </main>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// CONFIG & INIT
+// ============================================================
+let sbClient = null;
+let currentUser = null;
+let categoriiCache = [];
+
+function getConfig() {
+  try { return JSON.parse(localStorage.getItem('registru_pfa_config') || 'null'); }
+  catch { return null; }
+}
+
+async function saveSetup() {
+  const url = document.getElementById('setup-url').value.trim().replace(/\/+$/, '');
+  const key = document.getElementById('setup-key').value.trim();
+  const errEl = document.getElementById('setup-error');
+  errEl.textContent = '';
+  if (!url || !key) { errEl.textContent = 'Completează ambele câmpuri.'; return; }
+  if (!url.startsWith('https://')) { errEl.textContent = 'URL-ul trebuie să înceapă cu https://'; return; }
+  if (typeof window.supabase === 'undefined') {
+    errEl.textContent = 'Librăria Supabase nu s-a încărcat (verifică conexiunea la internet) — reîncarcă pagina și încearcă din nou.';
+    return;
+  }
+  errEl.textContent = 'Se testează conexiunea…';
+  try {
+    const testClient = window.supabase.createClient(url, key);
+    // apel simplu, ca să confirmăm că URL-ul + cheia sunt valide înainte să salvăm
+    const { error } = await testClient.from('categorii').select('id').limit(1);
+    if (error && error.message && !error.message.toLowerCase().includes('jwt')) {
+      // o eroare de tip "relation does not exist" tot înseamnă conexiune reușită la proiect greșit configurat pe partea de schema
+    }
+    if (error && (error.message?.toLowerCase().includes('invalid api key') || error.message?.toLowerCase().includes('jwt'))) {
+      errEl.textContent = 'Cheia sau URL-ul par incorecte: ' + error.message;
+      return;
+    }
+  } catch (e) {
+    errEl.textContent = 'Nu m-am putut conecta la Supabase cu aceste date: ' + e.message;
+    return;
+  }
+  localStorage.setItem('registru_pfa_config', JSON.stringify({ url, key }));
+  errEl.textContent = '';
+  initSupabase();
+}
+
+function showSetup() {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('setup-screen').style.display = 'flex';
+  const cfg = getConfig();
+  if (cfg) {
+    document.getElementById('setup-url').value = cfg.url;
+    document.getElementById('setup-key').value = cfg.key;
+  }
+}
+
+function initSupabase() {
+  const cfg = getConfig();
+  if (!cfg) {
+    document.getElementById('setup-screen').style.display = 'flex';
+    return;
+  }
+  try {
+    sbClient = window.supabase.createClient(cfg.url, cfg.key);
+  } catch (e) {
+    document.getElementById('setup-error').textContent = 'Configurare invalidă: ' + e.message;
+    document.getElementById('setup-screen').style.display = 'flex';
+    return;
+  }
+  document.getElementById('setup-screen').style.display = 'none';
+  checkSession();
+}
+
+async function checkSession() {
+  try {
+    const { data, error } = await sbClient.auth.getSession();
+    if (error) throw error;
+    if (data.session) {
+      currentUser = data.session.user;
+      enterApp();
+    } else {
+      document.getElementById('login-screen').style.display = 'flex';
+    }
+  } catch (e) {
+    document.getElementById('setup-screen').style.display = 'flex';
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('setup-error').textContent = 'Eroare la conectare: ' + e.message + ' — verifică Project URL și cheia.';
+  }
+}
+
+async function doLogin() {
+  const email = document.getElementById('login-email').value.trim();
+  const pass = document.getElementById('login-pass').value;
+  const errEl = document.getElementById('login-error');
+  errEl.textContent = '';
+  const { data, error } = await sbClient.auth.signInWithPassword({ email, password: pass });
+  if (error) { errEl.textContent = 'Autentificare eșuată: ' + error.message; return; }
+  currentUser = data.user;
+  enterApp();
+}
+
+async function doLogout() {
+  await sbClient.auth.signOut();
+  currentUser = null;
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('login-screen').style.display = 'flex';
+}
+
+async function enterApp() {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  document.getElementById('user-email').textContent = currentUser.email;
+  await loadCategorii();
+  switchTab('tranzactii');
+}
+
+window.addEventListener('DOMContentLoaded', initSupabase);
+
+// ============================================================
+// TAB SWITCHING
+// ============================================================
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  ['tranzactii','categorii','jurnal','balanta','fiscal'].forEach(v => {
+    document.getElementById('view-' + v).style.display = (v === name) ? 'block' : 'none';
+  });
+  if (name === 'tranzactii') renderTranzactii();
+  if (name === 'categorii') renderCategorii();
+  if (name === 'jurnal') renderJurnal();
+  if (name === 'balanta') renderBalanta();
+  if (name === 'fiscal') renderFiscal();
+}
+
+// ============================================================
+// HELPERS
+// ============================================================
+function fmt(n) {
+  return Number(n).toLocaleString('ro-RO', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' lei';
+}
+function todayISO() { return new Date().toISOString().slice(0,10); }
+function esc(s) { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; }
+
+function downloadCSV(filename, rows) {
+  const csv = rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+}
+
+async function loadCategorii() {
+  const { data, error } = await sbClient.from('categorii').select('*').order('nume');
+  if (!error) categoriiCache = data;
+}
+function categorieNume(id) {
+  const c = categoriiCache.find(c => c.id === id);
+  return c ? c.nume : '(categorie ștearsă)';
+}
+function categorieTip(id) {
+  const c = categoriiCache.find(c => c.id === id);
+  return c ? c.tip : null;
+}
+
+// ============================================================
+// TAB: TRANZACTII
+// ============================================================
+async function renderTranzactii() {
+  const el = document.getElementById('view-tranzactii');
+  const catOptions = categoriiCache.filter(c => c.activ).map(c =>
+    `<option value="${c.id}">${esc(c.nume)}</option>`).join('');
+
+  el.innerHTML = `
+    <div class="page-title">Tranzacții</div>
+    <div class="page-sub">Adaugă fiecare încasare sau plată pe măsură ce are loc.</div>
+    <div class="panel">
+      <h3>Tranzacție nouă</h3>
+      <div class="field-row">
+        <div class="field"><label>Dată</label><input type="date" id="tr-data" value="${todayISO()}"></div>
+        <div class="field"><label>Tip</label>
+          <select id="tr-tip"><option value="incasare">Încasare</option><option value="plata">Plată</option></select>
+        </div>
+        <div class="field"><label>Sumă (lei)</label><input type="number" id="tr-suma" step="0.01" min="0"></div>
+        <div class="field"><label>Categorie</label><select id="tr-categorie">${catOptions}</select></div>
+      </div>
+      <div class="field-row">
+        <div class="field" style="flex:2;"><label>Descriere</label><input type="text" id="tr-descriere" placeholder="ex: factură nr. 15 către client X"></div>
+        <div class="field"><label>Nr. document</label><input type="text" id="tr-doc" placeholder="ex: FCT-2026-015"></div>
+      </div>
+      <button class="btn" onclick="addTranzactie()">Adaugă tranzacție</button>
+      <div id="tr-error" class="error-msg"></div>
+    </div>
+    <div class="panel">
+      <h3>Ultimele tranzacții</h3>
+      <div id="tr-list"><div class="empty-state">Se încarcă…</div></div>
+    </div>
+  `;
+  loadTranzactiiList();
+}
+
+async function addTranzactie() {
+  const data = document.getElementById('tr-data').value;
+  const tip = document.getElementById('tr-tip').value;
+  const suma = parseFloat(document.getElementById('tr-suma').value);
+  const categorie_id = document.getElementById('tr-categorie').value;
+  const descriere = document.getElementById('tr-descriere').value.trim();
+  const nr_document = document.getElementById('tr-doc').value.trim();
+  const errEl = document.getElementById('tr-error');
+  errEl.textContent = '';
+
+  if (!data || !suma || suma <= 0 || !categorie_id || !descriere) {
+    errEl.textContent = 'Completează dată, sumă validă, categorie și descriere.';
+    return;
+  }
+  const { error } = await sbClient.from('tranzactii').insert({
+    data, tip, suma, categorie_id, descriere, nr_document: nr_document || null, creat_de: currentUser.id
+  });
+  if (error) { errEl.textContent = 'Eroare: ' + error.message; return; }
+
+  document.getElementById('tr-suma').value = '';
+  document.getElementById('tr-descriere').value = '';
+  document.getElementById('tr-doc').value = '';
+  loadTranzactiiList();
+}
+
+async function loadTranzactiiList() {
+  const { data, error } = await sbClient.from('tranzactii')
+    .select('*').eq('anulata', false).order('data', { ascending: false }).limit(100);
+  const listEl = document.getElementById('tr-list');
+  if (error) { listEl.innerHTML = `<div class="error-msg">${esc(error.message)}</div>`; return; }
+  if (!data.length) { listEl.innerHTML = '<div class="empty-state">Nicio tranzacție înregistrată încă.</div>'; return; }
+
+  listEl.innerHTML = `
+    <table>
+      <thead><tr><th>Dată</th><th>Categorie</th><th>Descriere</th><th>Document</th><th class="num">Sumă</th><th></th></tr></thead>
+      <tbody>
+        ${data.map(t => `
+          <tr>
+            <td>${t.data}</td>
+            <td>${esc(categorieNume(t.categorie_id))}</td>
+            <td>${esc(t.descriere)}</td>
+            <td class="muted">${esc(t.nr_document || '—')}</td>
+            <td class="num ${t.tip === 'incasare' ? 'credit' : 'debit'}">${t.tip === 'incasare' ? '+' : '−'} ${fmt(t.suma)}</td>
+            <td><button class="link-btn" onclick="anuleazaTranzactie('${t.id}')">anulează</button></td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+async function anuleazaTranzactie(id) {
+  if (!confirm('Anulezi această tranzacție? Rămâne în istoric, dar nu mai intră în calcule.')) return;
+  await sbClient.from('tranzactii').update({ anulata: true }).eq('id', id);
+  loadTranzactiiList();
+}
+
+// ============================================================
+// TAB: CATEGORII
+// ============================================================
+function renderCategorii() {
+  const el = document.getElementById('view-categorii');
+  el.innerHTML = `
+    <div class="page-title">Categorii</div>
+    <div class="page-sub">Definește categoriile folosite la tranzacții. O categorie dezactivată nu mai apare la adăugare, dar tranzacțiile vechi rămân neschimbate.</div>
+    <div class="panel">
+      <h3>Categorie nouă</h3>
+      <div class="field-row">
+        <div class="field" style="flex:2;"><label>Nume</label><input type="text" id="cat-nume"></div>
+        <div class="field"><label>Tip</label>
+          <select id="cat-tip">
+            <option value="venit">Venit</option>
+            <option value="cheltuiala_deductibila">Cheltuială deductibilă</option>
+            <option value="contributie_nedeductibila">Contribuție (CAS/CASS) — nedeductibilă</option>
+          </select>
+        </div>
+      </div>
+      <button class="btn" onclick="addCategorie()">Adaugă categorie</button>
+      <div id="cat-error" class="error-msg"></div>
+    </div>
+    <div class="panel">
+      <h3>Categorii existente</h3>
+      <div id="cat-list"></div>
+    </div>
+  `;
+  renderCategoriiList();
+}
+
+const TIP_LABEL = {
+  venit: 'Venit',
+  cheltuiala_deductibila: 'Cheltuială deductibilă',
+  contributie_nedeductibila: 'Contribuție nedeductibilă'
+};
+
+function renderCategoriiList() {
+  const listEl = document.getElementById('cat-list');
+  if (!categoriiCache.length) { listEl.innerHTML = '<div class="empty-state">Nicio categorie.</div>'; return; }
+  listEl.innerHTML = `
+    <table>
+      <thead><tr><th>Nume</th><th>Tip</th><th>Stare</th><th></th></tr></thead>
+      <tbody>
+        ${categoriiCache.map(c => `
+          <tr>
+            <td>${esc(c.nume)}</td>
+            <td class="muted">${TIP_LABEL[c.tip] || c.tip}</td>
+            <td>${c.activ ? '<span class="credit">activă</span>' : '<span class="muted">dezactivată</span>'}</td>
+            <td><button class="link-btn" onclick="toggleCategorie('${c.id}', ${!c.activ})">${c.activ ? 'dezactivează' : 'reactivează'}</button></td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+async function addCategorie() {
+  const nume = document.getElementById('cat-nume').value.trim();
+  const tip = document.getElementById('cat-tip').value;
+  const errEl = document.getElementById('cat-error');
+  if (!nume) { errEl.textContent = 'Introdu un nume.'; return; }
+  const { error } = await sbClient.from('categorii').insert({ nume, tip });
+  if (error) { errEl.textContent = 'Eroare: ' + error.message; return; }
+  document.getElementById('cat-nume').value = '';
+  await loadCategorii();
+  renderCategoriiList();
+}
+
+async function toggleCategorie(id, activ) {
+  await sbClient.from('categorii').update({ activ }).eq('id', id);
+  await loadCategorii();
+  renderCategoriiList();
+}
+
+// ============================================================
+// TAB: REGISTRU-JURNAL (cronologic, pe interval)
+// ============================================================
+function renderJurnal() {
+  const el = document.getElementById('view-jurnal');
+  const now = new Date();
+  const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0,10);
+  el.innerHTML = `
+    <div class="page-title">Registru-jurnal de încasări și plăți</div>
+    <div class="page-sub">Vedere cronologică. Exportă sau printează pentru control fiscal.</div>
+    <div class="panel">
+      <div class="field-row">
+        <div class="field"><label>De la</label><input type="date" id="jr-de-la" value="${firstOfMonth}"></div>
+        <div class="field"><label>Până la</label><input type="date" id="jr-pana-la" value="${todayISO()}"></div>
+        <div class="field" style="justify-content:flex-end;">
+          <button class="btn secondary no-print" onclick="incarcaJurnal()">Actualizează</button>
+        </div>
+      </div>
+      <div id="jr-content"><div class="empty-state">Alege intervalul și apasă Actualizează.</div></div>
+    </div>
+  `;
+  incarcaJurnal();
+}
+
+async function incarcaJurnal() {
+  const de_la = document.getElementById('jr-de-la').value;
+  const pana_la = document.getElementById('jr-pana-la').value;
+  const { data, error } = await sbClient.from('tranzactii')
+    .select('*').eq('anulata', false)
+    .gte('data', de_la).lte('data', pana_la)
+    .order('data', { ascending: true });
+  const contentEl = document.getElementById('jr-content');
+  if (error) { contentEl.innerHTML = `<div class="error-msg">${esc(error.message)}</div>`; return; }
+  if (!data.length) { contentEl.innerHTML = '<div class="empty-state">Nicio tranzacție în acest interval.</div>'; return; }
+
+  let totalIncasari = 0, totalPlati = 0;
+  data.forEach(t => t.tip === 'incasare' ? totalIncasari += Number(t.suma) : totalPlati += Number(t.suma));
+
+  contentEl.innerHTML = `
+    <div class="no-print" style="margin-bottom:12px;">
+      <button class="btn secondary" onclick="exportaJurnalCSV('${de_la}','${pana_la}')">Exportă CSV</button>
+      <button class="btn secondary" onclick="window.print()">Printează / PDF</button>
+    </div>
+    <table>
+      <thead><tr><th>Dată</th><th>Categorie</th><th>Descriere</th><th>Document</th><th class="num">Încasare</th><th class="num">Plată</th></tr></thead>
+      <tbody>
+        ${data.map(t => `
+          <tr>
+            <td>${t.data}</td>
+            <td>${esc(categorieNume(t.categorie_id))}</td>
+            <td>${esc(t.descriere)}</td>
+            <td class="muted">${esc(t.nr_document || '—')}</td>
+            <td class="num credit">${t.tip === 'incasare' ? fmt(t.suma) : ''}</td>
+            <td class="num debit">${t.tip === 'plata' ? fmt(t.suma) : ''}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+    <div class="totals-bar">
+      <div class="item"><div class="label">Total încasări</div><div class="value num credit">${fmt(totalIncasari)}</div></div>
+      <div class="item"><div class="label">Total plăți</div><div class="value num debit">${fmt(totalPlati)}</div></div>
+      <div class="item"><div class="label">Sold</div><div class="value num">${fmt(totalIncasari - totalPlati)}</div></div>
+    </div>
+  `;
+  window._jurnalCache = data;
+}
+
+function exportaJurnalCSV(de_la, pana_la) {
+  const rows = [['Data','Tip','Categorie','Descriere','Nr. document','Suma']];
+  window._jurnalCache.forEach(t => rows.push([t.data, t.tip, categorieNume(t.categorie_id), t.descriere, t.nr_document || '', t.suma]));
+  downloadCSV(`registru-jurnal_${de_la}_${pana_la}.csv`, rows);
+}
+
+// ============================================================
+// TAB: BALANTA PE PERIOADA (orice interval, pe categorie)
+// ============================================================
+function renderBalanta() {
+  const el = document.getElementById('view-balanta');
+  const now = new Date();
+  const firstOfYear = new Date(now.getFullYear(), 0, 1).toISOString().slice(0,10);
+  el.innerHTML = `
+    <div class="page-title">Balanță pe perioadă</div>
+    <div class="page-sub">Total pe categorie, pentru orice interval de date ales.</div>
+    <div class="panel">
+      <div class="field-row">
+        <div class="field"><label>De la</label><input type="date" id="bl-de-la" value="${firstOfYear}"></div>
+        <div class="field"><label>Până la</label><input type="date" id="bl-pana-la" value="${todayISO()}"></div>
+        <div class="field" style="justify-content:flex-end;">
+          <button class="btn secondary no-print" onclick="incarcaBalanta()">Actualizează</button>
+        </div>
+      </div>
+      <div id="bl-content"></div>
+    </div>
+  `;
+  incarcaBalanta();
+}
+
+async function incarcaBalanta() {
+  const de_la = document.getElementById('bl-de-la').value;
+  const pana_la = document.getElementById('bl-pana-la').value;
+  const { data, error } = await sbClient.from('tranzactii')
+    .select('*').eq('anulata', false).gte('data', de_la).lte('data', pana_la);
+  const contentEl = document.getElementById('bl-content');
+  if (error) { contentEl.innerHTML = `<div class="error-msg">${esc(error.message)}</div>`; return; }
+  if (!data.length) { contentEl.innerHTML = '<div class="empty-state">Nicio tranzacție în acest interval.</div>'; return; }
+
+  const perCategorie = {};
+  data.forEach(t => {
+    const key = t.categorie_id;
+    if (!perCategorie[key]) perCategorie[key] = { incasari: 0, plati: 0 };
+    if (t.tip === 'incasare') perCategorie[key].incasari += Number(t.suma);
+    else perCategorie[key].plati += Number(t.suma);
+  });
+
+  let totalIncasari = 0, totalPlati = 0;
+  const rows = Object.entries(perCategorie).map(([catId, v]) => {
+    totalIncasari += v.incasari; totalPlati += v.plati;
+    return { nume: categorieNume(catId), ...v };
+  }).sort((a,b) => a.nume.localeCompare(b.nume));
+
+  contentEl.innerHTML = `
+    <div class="no-print" style="margin:12px 0;">
+      <button class="btn secondary" onclick="window.print()">Printează / PDF</button>
+    </div>
+    <table>
+      <thead><tr><th>Categorie</th><th class="num">Încasări</th><th class="num">Plăți</th></tr></thead>
+      <tbody>
+        ${rows.map(r => `
+          <tr><td>${esc(r.nume)}</td>
+          <td class="num credit">${r.incasari ? fmt(r.incasari) : '—'}</td>
+          <td class="num debit">${r.plati ? fmt(r.plati) : '—'}</td></tr>
+        `).join('')}
+      </tbody>
+    </table>
+    <div class="totals-bar">
+      <div class="item"><div class="label">Total încasări</div><div class="value num credit">${fmt(totalIncasari)}</div></div>
+      <div class="item"><div class="label">Total plăți</div><div class="value num debit">${fmt(totalPlati)}</div></div>
+      <div class="item"><div class="label">Sold perioadă</div><div class="value num">${fmt(totalIncasari - totalPlati)}</div></div>
+    </div>
+  `;
+}
+
+// ============================================================
+// TAB: REGISTRU FISCAL / suport D212 (anual)
+// ============================================================
+function renderFiscal() {
+  const el = document.getElementById('view-fiscal');
+  const anCurent = new Date().getFullYear();
+  el.innerHTML = `
+    <div class="page-title">Registru de evidență fiscală — suport D212</div>
+    <div class="page-sub">Centralizator anual. Contribuțiile CAS/CASS plătite nu se scad ca cheltuială deductibilă aici — se declară separat, la secțiunea 1.4 din Declarația Unică.</div>
+    <div class="panel">
+      <div class="field-row">
+        <div class="field" style="max-width:160px;"><label>An fiscal</label>
+          <input type="number" id="fs-an" value="${anCurent}">
+        </div>
+        <div class="field" style="justify-content:flex-end;">
+          <button class="btn secondary no-print" onclick="incarcaFiscal()">Calculează</button>
+        </div>
+      </div>
+      <div id="fs-content"></div>
+    </div>
+  `;
+  incarcaFiscal();
+}
+
+async function incarcaFiscal() {
+  const an = parseInt(document.getElementById('fs-an').value);
+  const de_la = `${an}-01-01`, pana_la = `${an}-12-31`;
+  const contentEl = document.getElementById('fs-content');
+
+  const [{ data: tranz, error: e1 }, { data: prag, error: e2 }] = await Promise.all([
+    sbClient.from('tranzactii').select('*').eq('anulata', false).gte('data', de_la).lte('data', pana_la),
+    sbClient.from('praguri_fiscale').select('*').eq('an', an).maybeSingle()
+  ]);
+  if (e1) { contentEl.innerHTML = `<div class="error-msg">${esc(e1.message)}</div>`; return; }
+
+  let venitBrut = 0, cheltuieliDeductibile = 0, contributiiPlatite = 0;
+  tranz.forEach(t => {
+    const tip = categorieTip(t.categorie_id);
+    if (t.tip === 'incasare' && tip === 'venit') venitBrut += Number(t.suma);
+    else if (t.tip === 'plata' && tip === 'cheltuiala_deductibila') cheltuieliDeductibile += Number(t.suma);
+    else if (t.tip === 'plata' && tip === 'contributie_nedeductibila') contributiiPlatite += Number(t.suma);
+  });
+  const venitNet = venitBrut - cheltuieliDeductibile;
+
+  let pragInfo = '<div class="error-msg">Nu există praguri fiscale configurate pentru acest an în tabelul praguri_fiscale — adaugă-le în Supabase Table Editor.</div>';
+  let impozitEstimat = null, pragCASS = null, pragCAS = null;
+  if (prag) {
+    pragCASS = prag.salariu_minim * prag.praguri_cass_salarii;
+    pragCAS = prag.salariu_minim * prag.praguri_cas_salarii;
+    impozitEstimat = venitNet > 0 ? venitNet * (prag.cota_impozit / 100) : 0;
+    pragInfo = `
+      <div class="totals-bar" style="margin-top:0; border-top:none; padding-top:0;">
+        <div class="item"><div class="label">Prag CASS (${prag.praguri_cass_salarii} salarii min.)</div><div class="value num">${fmt(pragCASS)}</div></div>
+        <div class="item"><div class="label">Prag CAS (${prag.praguri_cas_salarii} salarii min.)</div><div class="value num">${fmt(pragCAS)}</div></div>
+      </div>
+      <p class="muted" style="font-size:0.85rem;">
+        ${venitNet >= pragCASS ? 'Venitul net atinge/depășește pragul de CASS pentru ' + an + '.' : 'Venitul net este sub pragul de CASS pentru ' + an + '.'}
+        ${venitNet >= pragCAS ? ' Atinge/depășește și pragul de CAS.' : ''}
+      </p>
+    `;
+  }
+
+  contentEl.innerHTML = `
+    <div class="no-print" style="margin:12px 0;">
+      <button class="btn secondary" onclick="exportaFiscalCSV(${an}, ${venitBrut}, ${cheltuieliDeductibile}, ${venitNet}, ${contributiiPlatite})">Exportă rezumat CSV</button>
+      <button class="btn secondary" onclick="window.print()">Printează / PDF</button>
+    </div>
+    <table>
+      <tbody>
+        <tr><td>Venit brut anual (din categorii tip "venit")</td><td class="num credit">${fmt(venitBrut)}</td></tr>
+        <tr><td>Cheltuieli deductibile anuale</td><td class="num debit">${fmt(cheltuieliDeductibile)}</td></tr>
+        <tr><td><strong>Venit net (bază de calcul D212)</strong></td><td class="num"><strong>${fmt(venitNet)}</strong></td></tr>
+        <tr><td class="muted">Contribuții CAS/CASS plătite în perioadă (informativ, nu se scad aici)</td><td class="num muted">${fmt(contributiiPlatite)}</td></tr>
+        ${impozitEstimat !== null ? `<tr><td>Impozit pe venit estimat (${prag.cota_impozit}%)</td><td class="num">${fmt(impozitEstimat)}</td></tr>` : ''}
+      </tbody>
+    </table>
+    ${pragInfo}
+    <p class="muted" style="font-size:0.8rem; margin-top:16px;">
+      Aceste cifre sunt orientative, calculate din datele introduse de tine. Verifică-le înainte să le treci în Declarația Unică din SPV — pragurile și cotele legale se pot modifica.
+    </p>
+  `;
+}
+
+function exportaFiscalCSV(an, venitBrut, cheltuieli, venitNet, contributii) {
+  const rows = [
+    ['An fiscal', an],
+    ['Venit brut anual', venitBrut.toFixed(2)],
+    ['Cheltuieli deductibile', cheltuieli.toFixed(2)],
+    ['Venit net', venitNet.toFixed(2)],
+    ['Contribuții CAS/CASS plătite (informativ)', contributii.toFixed(2)],
+  ];
+  downloadCSV(`registru-fiscal_${an}.csv`, rows);
+}
+</script>
+</body>
+</html>
