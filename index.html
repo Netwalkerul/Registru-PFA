@@ -242,6 +242,7 @@
         <button class="tab" data-tab="jurnal" onclick="switchTab('jurnal')">Registru-jurnal</button>
         <button class="tab" data-tab="balanta" onclick="switchTab('balanta')">Balanță pe perioadă</button>
         <button class="tab" data-tab="fiscal" onclick="switchTab('fiscal')">Registru fiscal / D212</button>
+        <button class="tab" data-tab="registratura" onclick="switchTab('registratura')">Registratură</button>
       </div>
       <div class="foot">
         <button onclick="doLogout()">Deconectare</button>
@@ -253,6 +254,7 @@
       <div id="view-jurnal" style="display:none;"></div>
       <div id="view-balanta" style="display:none;"></div>
       <div id="view-fiscal" style="display:none;"></div>
+      <div id="view-registratura" style="display:none;"></div>
     </main>
   </div>
 </div>
@@ -379,7 +381,7 @@ window.addEventListener('DOMContentLoaded', initSupabase);
 // ============================================================
 function switchTab(name) {
   document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
-  ['tranzactii','categorii','jurnal','balanta','fiscal'].forEach(v => {
+  ['tranzactii','categorii','jurnal','balanta','fiscal','registratura'].forEach(v => {
     document.getElementById('view-' + v).style.display = (v === name) ? 'block' : 'none';
   });
   if (name === 'tranzactii') renderTranzactii();
@@ -387,6 +389,7 @@ function switchTab(name) {
   if (name === 'jurnal') renderJurnal();
   if (name === 'balanta') renderBalanta();
   if (name === 'fiscal') renderFiscal();
+  if (name === 'registratura') renderRegistratura();
 }
 
 // ============================================================
@@ -822,6 +825,144 @@ function exportaFiscalCSV(an, venitBrut, cheltuieli, venitNet, contributii) {
     ['Contribuții CAS/CASS plătite (informativ)', contributii.toFixed(2)],
   ];
   downloadCSV(`registru-fiscal_${an}.csv`, rows);
+}
+
+// ============================================================
+// TAB: REGISTRATURA (documente intrate/ieșite, numerotare automată)
+// ============================================================
+function renderRegistratura() {
+  const el = document.getElementById('view-registratura');
+  const anCurent = new Date().getFullYear();
+  el.innerHTML = `
+    <div class="page-title">Registratură</div>
+    <div class="page-sub">Evidența documentelor intrate și ieșite. Numărul de înregistrare se atribuie automat, secvențial, și se resetează la 1 în fiecare an nou.</div>
+    <div class="panel">
+      <h3>Document nou</h3>
+      <div class="field-row">
+        <div class="field"><label>Dată</label><input type="date" id="rg-data" value="${todayISO()}"></div>
+        <div class="field"><label>Direcție</label>
+          <select id="rg-directie"><option value="intrare">Intrare</option><option value="iesire">Ieșire</option></select>
+        </div>
+        <div class="field"><label>Tip document (opțional)</label><input type="text" id="rg-tip" placeholder="ex: contract, adresă"></div>
+      </div>
+      <div class="field-row">
+        <div class="field" style="flex:1.5;"><label>Corespondent (de la / către)</label><input type="text" id="rg-corespondent" placeholder="ex: SC Client SRL"></div>
+        <div class="field" style="flex:2;"><label>Obiect</label><input type="text" id="rg-obiect" placeholder="ex: contract prestări servicii nr. 5"></div>
+      </div>
+      <div class="field-row">
+        <div class="field" style="flex:2;"><label>Observații (opțional)</label><input type="text" id="rg-observatii"></div>
+      </div>
+      <button class="btn" onclick="addRegistratura()">Înregistrează document</button>
+      <div id="rg-error" class="error-msg"></div>
+    </div>
+    <div class="panel">
+      <h3>Documente înregistrate</h3>
+      <div class="field-row no-print">
+        <div class="field" style="max-width:140px;"><label>An</label>
+          <select id="rg-filtru-an" onchange="loadRegistraturaList()">
+            ${[anCurent, anCurent-1, anCurent-2].map(a => `<option value="${a}">${a}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field" style="max-width:160px;"><label>Direcție</label>
+          <select id="rg-filtru-directie" onchange="loadRegistraturaList()">
+            <option value="">Toate</option>
+            <option value="intrare">Doar intrări</option>
+            <option value="iesire">Doar ieșiri</option>
+          </select>
+        </div>
+        <div class="field" style="justify-content:flex-end;">
+          <button class="btn secondary" onclick="exportaRegistraturaCSV()">Exportă CSV</button>
+          <button class="btn secondary" onclick="window.print()">Printează / PDF</button>
+        </div>
+      </div>
+      <div id="rg-list"><div class="empty-state">Se încarcă…</div></div>
+    </div>
+  `;
+  loadRegistraturaList();
+}
+
+async function addRegistratura() {
+  const data = document.getElementById('rg-data').value;
+  const directie = document.getElementById('rg-directie').value;
+  const tip_document = document.getElementById('rg-tip').value.trim();
+  const corespondent = document.getElementById('rg-corespondent').value.trim();
+  const obiect = document.getElementById('rg-obiect').value.trim();
+  const observatii = document.getElementById('rg-observatii').value.trim();
+  const errEl = document.getElementById('rg-error');
+  errEl.textContent = '';
+
+  if (!data || !corespondent || !obiect) {
+    errEl.textContent = 'Completează dată, corespondent și obiect.';
+    return;
+  }
+  const an = parseInt(data.slice(0, 4));
+
+  // pasul 1: obținem atomic următorul număr pentru anul respectiv
+  const { data: nrData, error: nrError } = await sbClient.rpc('next_nr_inregistrare', { p_an: an });
+  if (nrError) { errEl.textContent = 'Eroare la generarea numărului: ' + nrError.message; return; }
+
+  // pasul 2: inserăm documentul cu numărul obținut
+  const { error } = await sbClient.from('registratura').insert({
+    an, nr_inregistrare: nrData, data, directie, corespondent, obiect,
+    tip_document: tip_document || null, observatii: observatii || null, creat_de: currentUser.id
+  });
+  if (error) { errEl.textContent = 'Eroare: ' + error.message; return; }
+
+  document.getElementById('rg-corespondent').value = '';
+  document.getElementById('rg-obiect').value = '';
+  document.getElementById('rg-observatii').value = '';
+  document.getElementById('rg-tip').value = '';
+  document.getElementById('rg-filtru-an').value = String(an);
+  loadRegistraturaList();
+}
+
+async function loadRegistraturaList() {
+  const an = parseInt(document.getElementById('rg-filtru-an').value);
+  const directieFiltru = document.getElementById('rg-filtru-directie').value;
+  let q = sbClient.from('registratura').select('*').eq('anulat', false).eq('an', an);
+  if (directieFiltru) q = q.eq('directie', directieFiltru);
+  const { data, error } = await q.order('nr_inregistrare', { ascending: true });
+
+  const listEl = document.getElementById('rg-list');
+  if (error) { listEl.innerHTML = `<div class="error-msg">${esc(error.message)}</div>`; return; }
+  if (!data.length) { listEl.innerHTML = '<div class="empty-state">Niciun document înregistrat pentru acest filtru.</div>'; return; }
+
+  listEl.innerHTML = `
+    <table>
+      <thead><tr><th>Nr.</th><th>Dată</th><th>Direcție</th><th>Corespondent</th><th>Obiect</th><th>Tip</th><th>Observații</th><th></th></tr></thead>
+      <tbody>
+        ${data.map(r => `
+          <tr>
+            <td class="num">${r.an}/${r.nr_inregistrare}</td>
+            <td>${r.data}</td>
+            <td class="${r.directie === 'intrare' ? 'credit' : 'debit'}">${r.directie === 'intrare' ? 'Intrare' : 'Ieșire'}</td>
+            <td>${esc(r.corespondent)}</td>
+            <td>${esc(r.obiect)}</td>
+            <td class="muted">${esc(r.tip_document || '—')}</td>
+            <td class="muted">${esc(r.observatii || '—')}</td>
+            <td class="no-print"><button class="link-btn" onclick="anuleazaRegistratura('${r.id}')">anulează</button></td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+  window._registraturaCache = data;
+}
+
+async function anuleazaRegistratura(id) {
+  if (!confirm('Anulezi această înregistrare? Rămâne în istoric (cu numărul ei), dar apare marcată ca anulată.')) return;
+  await sbClient.from('registratura').update({ anulat: true }).eq('id', id);
+  loadRegistraturaList();
+}
+
+function exportaRegistraturaCSV() {
+  const an = document.getElementById('rg-filtru-an').value;
+  if (!window._registraturaCache || !window._registraturaCache.length) return;
+  const rows = [['Nr. înregistrare','Data','Direcție','Corespondent','Obiect','Tip document','Observații']];
+  window._registraturaCache.forEach(r => rows.push([
+    `${r.an}/${r.nr_inregistrare}`, r.data, r.directie, r.corespondent, r.obiect, r.tip_document || '', r.observatii || ''
+  ]));
+  downloadCSV(`registratura_${an}.csv`, rows);
 }
 </script>
 </body>
